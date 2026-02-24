@@ -12,6 +12,90 @@ Official repository for the paper "LiveCodeBench: Holistic and Contamination Fre
 LiveCodeBench provides holistic and contamination-free evaluation of coding capabilities of LLMs.  Particularly, LiveCodeBench continuously collects new problems over time from contests across three competition platforms -- LeetCode, AtCoder, and CodeForces. Next, LiveCodeBench also focuses on a broader range of code-related capabilities, such as self-repair, code execution, and test output prediction, beyond just code generation. Currently, LiveCodeBench hosts four hundred high-quality coding problems that were published between May 2023 and March 2024.
 
 
+## Fork Customizations
+
+This fork ([ssweens/LiveCodeBench](https://github.com/ssweens/LiveCodeBench)) adds the following changes on top of upstream:
+
+### Python 3.12 + uv setup
+
+`ray` and `vllm` ship no wheels for Python 3.13. Use Python 3.12 when
+creating the virtual environment:
+
+```bash
+uv venv --python 3.12 .venv
+source .venv/bin/activate
+uv sync
+```
+
+### Local / self-hosted model support
+
+Any model ID not already in `lm_styles.py` is **auto-registered** as a
+local OpenAI-compatible model — no need to edit any source files:
+
+```bash
+python -m lcb_runner.runner.main \
+    --model your-org/Your-Model-7B \
+    --scenario codegeneration --evaluate --n 1 --temperature 0.0
+```
+
+The runner connects to an OpenAI-compatible server at
+`http://localhost:9999/v1` by default.  Override with `--base-url` or the
+`OPENAI_BASE_URL` environment variable.  Start a local server with e.g.:
+
+```bash
+python -m vllm.entrypoints.openai.api_server \
+    --model your-org/Your-Model-7B --port 9999
+```
+
+### Smoke-test with `--limit`
+
+Cap the number of benchmark problems for a quick sanity check:
+
+```bash
+python -m lcb_runner.runner.main \
+    --model your-org/Your-Model-7B \
+    --scenario codegeneration --evaluate --n 1 --temperature 0.0 \
+    --limit 5
+```
+
+### Rich evaluation output
+
+Every run now prints a per-problem results table and a difficulty
+breakdown instead of a bare score:
+
+```
+──────────────────────────────────────────────────────────────────────
+ID               Title                              Diff       Pass
+──────────────────────────────────────────────────────────────────────
+1873_A           A. Short Sort                      EASY       ✓
+                  ↳ exec 0.0026s
+1873_B           B. Good Kid                        EASY       ✗
+                  ↳ [syntax error] expected an indented block ...
+1883_B           B. Chemistry                       MEDIUM     ✗
+                  ↳ [runtime error] Wrong answer at output_line_idx=2: NO != YES
+──────────────────────────────────────────────────────────────────────
+
+  pass@1 : 40.0%  (2/5 solved)
+
+  Easy    ████████████░░░░░░░░  58.3%  (7/12)
+  Medium  ████████░░░░░░░░░░░░  41.7%  (5/12)
+  Hard    ███░░░░░░░░░░░░░░░░░  16.7%  (1/6)
+```
+
+### `show_results` — display any saved run
+
+Replay the output above from a previously saved run without
+re-running inference:
+
+```bash
+python -m lcb_runner.runner.show_results output/Your-Model-7B/Scenario.codegeneration_1_0.0
+
+# also print the extracted code for each problem:
+python -m lcb_runner.runner.show_results <path> --code
+```
+
+---
+
 ## Installation
 You can clone the repository using the following command:
 
