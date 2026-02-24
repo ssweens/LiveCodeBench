@@ -14,6 +14,13 @@ def get_args():
         help="Name of the model to use matching `lm_styles.py`",
     )
     parser.add_argument(
+        "--base-url",
+        type=str,
+        default=None,
+        dest="base_url",
+        help="Base URL of the OpenAI-compatible API (default: OPENAI_BASE_URL env or http://localhost:9999/v1)",
+    )
+    parser.add_argument(
         "--local_model_path",
         type=str,
         default=None,

@@ -10,14 +10,27 @@ except ImportError as e:
 from lcb_runner.lm_styles import LMStyle
 from lcb_runner.runner.base_runner import BaseRunner
 
+# Default to corral's local server port; override with --base-url or OPENAI_BASE_URL
+_DEFAULT_BASE_URL = "http://localhost:9999/v1"
+
 
 class OpenAIRunner(BaseRunner):
-    client = OpenAI(
-        api_key=os.getenv("OPENAI_KEY"),
-    )
 
     def __init__(self, args, model):
         super().__init__(args, model)
+
+        # Resolve base_url: CLI flag > env var > default (corral port 9999)
+        base_url = getattr(args, "base_url", None)
+        if base_url is None:
+            base_url = os.getenv("OPENAI_BASE_URL", _DEFAULT_BASE_URL)
+
+        api_key = os.getenv("OPENAI_KEY") or os.getenv("OPENAI_API_KEY") or "dummy"
+
+        self.client = OpenAI(
+            api_key=api_key,
+            base_url=base_url,
+        )
+
         if model.model_style == LMStyle.OpenAIReasonPreview:
             self.client_kwargs: dict[str | str] = {
                 "model": args.model,
@@ -53,7 +66,7 @@ class OpenAIRunner(BaseRunner):
             return []
 
         try:
-            response = OpenAIRunner.client.chat.completions.create(
+            response = self.client.chat.completions.create(
                 messages=prompt,
                 **self.client_kwargs,
             )

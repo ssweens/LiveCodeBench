@@ -3,7 +3,7 @@ import json
 
 from lcb_runner.runner.parser import get_args
 from lcb_runner.utils.scenarios import Scenario
-from lcb_runner.lm_styles import LanguageModelStore
+from lcb_runner.lm_styles import LanguageModelStore, register_local_model
 from lcb_runner.runner.runner_utils import build_runner
 from lcb_runner.utils.path_utils import get_output_path
 from lcb_runner.evaluation import extract_instance_results
@@ -18,6 +18,9 @@ from lcb_runner.runner.scenario_router import (
 def main():
     args = get_args()
 
+    if args.model not in LanguageModelStore:
+        print(f"Model '{args.model}' not in lm_styles registry — auto-registering as local OpenAIChat model")
+        register_local_model(args.model)
     model = LanguageModelStore[args.model]
     benchmark, format_prompt = build_prompt_benchmark(args)
     if args.debug:

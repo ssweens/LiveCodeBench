@@ -867,5 +867,36 @@ LanguageModelStore: dict[str, LanguageModel] = {
     lm.model_name: lm for lm in LanguageModelList
 }
 
+
+def register_local_model(
+    model_name: str,
+    model_style: LMStyle = LMStyle.OpenAIChat,
+    display_name: str | None = None,
+) -> LanguageModel:
+    """
+    Auto-register an unknown model ID as a local OpenAI-compatible model.
+
+    Follows corral conventions: the model_name is whatever the local server
+    reports (e.g. HuggingFace-style "Qwen/Qwen2.5-Coder-7B-Instruct").
+    The display_name defaults to the basename of the model_name.
+    """
+    if model_name in LanguageModelStore:
+        return LanguageModelStore[model_name]
+
+    if display_name is None:
+        # "org/Model-Name-7B" -> "Model-Name-7B"
+        display_name = model_name.rsplit("/", 1)[-1]
+
+    lm = LanguageModel(
+        model_name=model_name,
+        model_repr=display_name,
+        model_style=model_style,
+        release_date=datetime(2024, 1, 1),
+        link=None,
+    )
+    LanguageModelStore[model_name] = lm
+    return lm
+
+
 if __name__ == "__main__":
     print(list(LanguageModelStore.keys()))
