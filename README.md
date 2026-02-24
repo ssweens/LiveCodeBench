@@ -82,17 +82,48 @@ ID               Title                              Diff       Pass
   Hard    ███░░░░░░░░░░░░░░░░░  16.7%  (1/6)
 ```
 
-### `show_results` — display any saved run
+### Resuming from prior results
 
-Replay the output above from a previously saved run without
-re-running inference:
+There are three levels depending on what you want to reuse:
+
+**1. Reuse generations, re-evaluate from scratch** — skips inference for
+any problem that already has output; re-runs the evaluator on everything:
 
 ```bash
-python -m lcb_runner.runner.show_results output/Your-Model-7B/Scenario.codegeneration_1_0.0
+python -m lcb_runner.runner.main \
+    --model your-org/Your-Model-7B \
+    --scenario codegeneration --evaluate --n 1 --temperature 0.0 \
+    --continue_existing
+```
+
+**2. Reuse both generations and prior eval results** — only evaluates
+problems not already present in the saved `_eval_all.json`.  Fastest
+option when adding new problems to an existing run:
+
+```bash
+python -m lcb_runner.runner.main \
+    --model your-org/Your-Model-7B \
+    --scenario codegeneration --evaluate --n 1 --temperature 0.0 \
+    --continue_existing_with_eval
+```
+
+**3. Display only — no inference or evaluation** — replay the results
+table from a completed run without touching the runner:
+
+```bash
+python -m lcb_runner.runner.show_results \
+    output/Your-Model-7B/Scenario.codegeneration_1_0.0
 
 # also print the extracted code for each problem:
 python -m lcb_runner.runner.show_results <path> --code
 ```
+
+> **Gotcha with `--continue_existing`:** the loader silently drops any
+> problem whose `output_list` contains only empty strings (model returned
+> nothing) and re-queues it for generation.  The startup line
+> `Found N existing generations, continuing with M remaining` tells you
+> how many will be regenerated.  If your model server is not running and
+> M > 0 the command will hang — bring the server up first.
 
 ---
 
