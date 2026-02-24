@@ -212,6 +212,107 @@ def get_metrics(
     else:
         raise ValueError(f"Scenario {scenario} not implemented")
 
-    print(metrics[0]["pass@1"])
+    _print_metrics(scenario, metrics, benchmark)
 
     return metrics
+
+
+def _print_metrics(scenario: Scenario, metrics, benchmark):
+    import json as _json
+
+    summary = metrics[0]
+    # detail keys are integers when coming directly from codegen_metrics, but
+    # strings when loaded back from a saved JSON file — normalise to strings.
+    per_problem = {
+        str(k): v
+        for k, v in metrics[0].get("detail", {}).get("pass@1", {}).items()
+    }
+    metadatas = metrics[2] if len(metrics) > 2 else None
+
+    # ── per-problem table ────────────────────────────────────────────────────
+    col_id    = 14
+    col_title = 32
+    col_diff  = 8
+    col_res   = 6
+    sep = "─" * (col_id + col_title + col_diff + col_res + 3 * 3 + 2)
+
+    header = (
+        f"{'ID':<{col_id}}   "
+        f"{'Title':<{col_title}}   "
+        f"{'Diff':<{col_diff}}   "
+        f"{'Pass':<{col_res}}"
+    )
+    print()
+    print(sep)
+    print(header)
+    print(sep)
+
+    by_diff: dict[str, list[float]] = {}
+
+    for idx, instance in enumerate(benchmark):
+        key      = str(idx)
+        passed   = per_problem.get(key, None)
+        mark     = "✓" if passed == 1.0 else ("✗" if passed == 0.0 else "?")
+
+        qid   = getattr(instance, "question_id",    "?")[:col_id]
+        title = getattr(instance, "question_title", "?")[:col_title]
+        diff  = str(getattr(instance, "difficulty",  "?"))
+
+        # strip "Difficulty." prefix if present
+        if "." in diff:
+            diff = diff.split(".", 1)[1]
+        diff_label = diff.lower()
+        diff = diff[:col_diff]
+
+        # accumulate difficulty breakdown
+        if passed is not None:
+            by_diff.setdefault(diff_label, []).append(passed)
+
+        # pull the first metadata entry for this problem (error msg or time)
+        note = ""
+        if metadatas and idx < len(metadatas):
+            raw = metadatas[idx]
+            if raw:
+                try:
+                    m = _json.loads(raw[0])
+                    if "error_message" in m:
+                        note = m["error_message"][:100]
+                    elif "execution time" in m:
+                        note = f"exec {m['execution time']:.4f}s"
+                except Exception:
+                    note = str(raw[0])[:80]
+
+        row = (
+            f"{qid:<{col_id}}   "
+            f"{title:<{col_title}}   "
+            f"{diff:<{col_diff}}   "
+            f"{mark:<{col_res}}"
+        )
+        print(row)
+        if note:
+            print(f"  {'':>{col_id}}  ↳ {note}")
+
+    print(sep)
+
+    # ── summary ──────────────────────────────────────────────────────────────
+    total  = len(per_problem)
+    solved = sum(1 for v in per_problem.values() if v == 1.0)
+    pass_at_1 = summary.get("pass@1", solved / total if total else 0.0)
+    print(f"\n  pass@1 : {pass_at_1:.1%}  ({solved}/{total} solved)")
+
+    # difficulty breakdown (easy → medium → hard, skip tiers with no data)
+    _DIFF_ORDER = ["easy", "medium", "hard"]
+    tiers = [d for d in _DIFF_ORDER if d in by_diff] + \
+            [d for d in sorted(by_diff) if d not in _DIFF_ORDER]
+    if tiers:
+        print()
+        col_d = max(len(d) for d in tiers)
+        for d in tiers:
+            scores = by_diff[d]
+            n = len(scores)
+            s = sum(1 for x in scores if x == 1.0)
+            pct = s / n
+            bar_filled = round(pct * 20)
+            bar = "█" * bar_filled + "░" * (20 - bar_filled)
+            print(f"  {d.capitalize():<{col_d}}  {bar}  {pct:5.1%}  ({s}/{n})")
+    print()
