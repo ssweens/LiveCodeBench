@@ -1,5 +1,4 @@
 import os
-import torch
 import argparse
 
 from lcb_runner.utils.scenarios import Scenario
@@ -150,7 +149,11 @@ def get_args():
     args.stop = args.stop.split(",")
 
     if args.tensor_parallel_size == -1:
-        args.tensor_parallel_size = torch.cuda.device_count()
+        try:
+            import torch
+            args.tensor_parallel_size = torch.cuda.device_count()
+        except ImportError:
+            args.tensor_parallel_size = 1
 
     if args.multiprocess == -1:
         args.multiprocess = os.cpu_count()
