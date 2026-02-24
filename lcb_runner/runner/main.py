@@ -23,7 +23,10 @@ def main():
         register_local_model(args.model)
     model = LanguageModelStore[args.model]
     benchmark, format_prompt = build_prompt_benchmark(args)
-    if args.debug:
+    if args.limit is not None:
+        print(f"Limiting to {args.limit} of {len(benchmark)} instances")
+        benchmark = benchmark[: args.limit]
+    elif args.debug:
         print(f"Running with {len(benchmark)} instances in debug mode")
         benchmark = benchmark[:15]
 
