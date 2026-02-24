@@ -134,6 +134,9 @@ def main():
             new_eval_size = len(benchmark)
 
             if new_eval_size == 0:
+                print("All problems already evaluated — displaying saved results.")
+                from lcb_runner.runner.show_results import show
+                show(eval_all_file, eval_file if os.path.exists(eval_file) else None)
                 return
 
             print(f"Found {old_eval_size}, running evals for {new_eval_size} problems")
