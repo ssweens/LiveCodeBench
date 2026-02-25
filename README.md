@@ -8,6 +8,16 @@ Official repository for the paper "LiveCodeBench: Holistic and Contamination Fre
     <a href="https://huggingface.co/spaces/livecodebench/code_generation_samples">🔍 Explorer</a> 
 </p>
 
+## ⚡ Common Usage
+
+```bash
+python -m lcb_runner.runner.main \
+    --model "zai-org/GLM-4.7-Flash" \
+    --scenario codegeneration --evaluate --n 1 --temperature 0.0 \
+    --base-url http://localhost:9999/v1 \
+    --limit 10
+```
+
 ## Introduction
 LiveCodeBench provides holistic and contamination-free evaluation of coding capabilities of LLMs.  Particularly, LiveCodeBench continuously collects new problems over time from contests across three competition platforms -- LeetCode, AtCoder, and CodeForces. Next, LiveCodeBench also focuses on a broader range of code-related capabilities, such as self-repair, code execution, and test output prediction, beyond just code generation. Currently, LiveCodeBench hosts four hundred high-quality coding problems that were published between May 2023 and March 2024.
 
@@ -30,13 +40,8 @@ uv sync
 ### Local / self-hosted model support
 
 Any model ID not already in `lm_styles.py` is **auto-registered** as a
-local OpenAI-compatible model — no need to edit any source files:
-
-```bash
-python -m lcb_runner.runner.main \
-    --model your-org/Your-Model-7B \
-    --scenario codegeneration --evaluate --n 1 --temperature 0.0
-```
+local OpenAI-compatible model — no need to edit any source files (see
+[Common Usage](#-common-usage) above for a full example).
 
 The runner connects to an OpenAI-compatible server at
 `http://localhost:9999/v1` by default.  Override with `--base-url` or the
@@ -49,14 +54,8 @@ python -m vllm.entrypoints.openai.api_server \
 
 ### Smoke-test with `--limit`
 
-Cap the number of benchmark problems for a quick sanity check:
-
-```bash
-python -m lcb_runner.runner.main \
-    --model your-org/Your-Model-7B \
-    --scenario codegeneration --evaluate --n 1 --temperature 0.0 \
-    --limit 5
-```
+Pass `--limit N` to cap the number of benchmark problems for a quick sanity
+check (see [Common Usage](#-common-usage) above for a full example).
 
 ### Rich evaluation output
 
