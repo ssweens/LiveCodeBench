@@ -15,7 +15,8 @@ python -m lcb_runner.runner.main \
     --model "zai-org/GLM-4.7-Flash" \
     --scenario codegeneration --evaluate --n 1 --temperature 0.0 \
     --base-url http://localhost:9999/v1 \
-    --limit 10
+    --limit 10 \
+    --continue_existing_with_eval
 ```
 
 ## Introduction
