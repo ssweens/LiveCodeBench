@@ -95,6 +95,19 @@ def get_args():
         default=None,
         help="Limit the number of benchmark problems to run (for smoke tests)",
     )
+    parser.add_argument(
+        "--sample",
+        type=int,
+        default=None,
+        help="Stratified sample N problems by difficulty with a fixed seed (reproducible cross-section)",
+    )
+    parser.add_argument(
+        "--sample-seed",
+        type=int,
+        default=42,
+        dest="sample_seed",
+        help="Random seed for --sample (default: 42)",
+    )
     parser.add_argument("--evaluate", action="store_true", help="Evaluate the results")
     parser.add_argument(
         "--num_process_evaluate",

@@ -1,5 +1,7 @@
 import os
 import json
+import random
+from collections import defaultdict
 
 from lcb_runner.runner.parser import get_args
 from lcb_runner.utils.scenarios import Scenario
@@ -23,7 +25,36 @@ def main():
         register_local_model(args.model)
     model = LanguageModelStore[args.model]
     benchmark, format_prompt = build_prompt_benchmark(args)
-    if args.limit is not None:
+    if args.sample is not None:
+        rng = random.Random(args.sample_seed)
+        by_difficulty = defaultdict(list)
+        for p in benchmark:
+            by_difficulty[p.difficulty].append(p)
+        difficulties = sorted(by_difficulty.keys(), key=lambda d: d.value)
+        total = args.sample
+        counts = {}
+        n = len(difficulties)
+        for i, diff in enumerate(difficulties):
+            counts[diff] = round(total * len(by_difficulty[diff]) / len(benchmark))
+        # adjust rounding to hit exactly total
+        while sum(counts.values()) < total:
+            counts[difficulties[0]] += 1
+        while sum(counts.values()) > total:
+            counts[difficulties[-1]] -= 1
+        sampled = []
+        for diff in difficulties:
+            pool = by_difficulty[diff]
+            k = min(counts[diff], len(pool))
+            sampled.extend(rng.sample(pool, k))
+        sampled.sort(key=lambda p: p.contest_date)
+        print(
+            f"Sampled {len(sampled)} of {len(benchmark)} instances "
+            f"(seed={args.sample_seed}, by difficulty: "
+            + ", ".join(f"{d.value}={counts[d]}" for d in difficulties)
+            + ")"
+        )
+        benchmark = sampled
+    elif args.limit is not None:
         print(f"Limiting to {args.limit} of {len(benchmark)} instances")
         benchmark = benchmark[: args.limit]
     elif args.debug:
