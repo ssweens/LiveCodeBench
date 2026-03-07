@@ -46,7 +46,7 @@ def main():
             pool = by_difficulty[diff]
             k = min(counts[diff], len(pool))
             sampled.extend(rng.sample(pool, k))
-        sampled.sort(key=lambda p: p.contest_date)
+        sampled.sort(key=lambda p: p.question_id)
         print(
             f"Sampled {len(sampled)} of {len(benchmark)} instances "
             f"(seed={args.sample_seed}, by difficulty: "
