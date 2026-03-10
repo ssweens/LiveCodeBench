@@ -58,17 +58,29 @@ class OpenAIRunner(BaseRunner):
                 # "stop": args.stop, --> stop is only used for base models currently
             }
 
-    def _run_single(self, prompt: list[dict[str, str]], n: int = 10) -> list[str]:
+    def _run_single(self, prompt: list[dict[str, str]], retries: int = 10) -> list[str]:
         assert isinstance(prompt, list)
 
-        if n == 0:
+        n_completions = self.client_kwargs.get("n", 1)
+        # Always request n=1 per call (compatible with single-slot servers like
+        # llama.cpp) and loop to collect the desired number of completions.
+        call_kwargs = {**self.client_kwargs, "n": 1}
+
+        results: list[str] = []
+        for _ in range(n_completions):
+            result = self._call_once(prompt, call_kwargs, retries=retries)
+            results.append(result)
+        return results
+
+    def _call_once(self, prompt: list[dict[str, str]], call_kwargs: dict, retries: int = 10) -> str:
+        if retries == 0:
             print("Max retries reached. Returning empty response.")
-            return []
+            return ""
 
         try:
             response = self.client.chat.completions.create(
                 messages=prompt,
-                **self.client_kwargs,
+                **call_kwargs,
             )
         except (
             openai.APIError,
@@ -84,9 +96,9 @@ class OpenAIRunner(BaseRunner):
             print("Sleeping for 30 seconds...")
             print("Consider reducing the number of parallel processes.")
             sleep(30)
-            return self._run_single(prompt, n=n - 1)
+            return self._call_once(prompt, call_kwargs, retries=retries - 1)
         except Exception as e:
             print(f"Failed to run the model for {prompt}!")
             print("Exception: ", repr(e))
             raise e
-        return [c.message.content for c in response.choices]
+        return response.choices[0].message.content

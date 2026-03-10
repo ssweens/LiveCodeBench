@@ -25,6 +25,13 @@ def main():
         register_local_model(args.model)
     model = LanguageModelStore[args.model]
     benchmark, format_prompt = build_prompt_benchmark(args)
+    if args.exclude:
+        exclude_ids = {q.strip() for q in args.exclude.split(",") if q.strip()}
+        before = len(benchmark)
+        benchmark = [p for p in benchmark if p.question_id not in exclude_ids]
+        excluded = before - len(benchmark)
+        if excluded:
+            print(f"Excluded {excluded} blocked problem(s): {', '.join(sorted(exclude_ids))}")
     if args.sample is not None:
         rng = random.Random(args.sample_seed)
         by_difficulty = defaultdict(list)
@@ -34,13 +41,14 @@ def main():
         total = args.sample
         counts = {}
         n = len(difficulties)
+        # Balanced: equal per tier, remainder goes to hardest first
+        base = total // n
+        remainder = total % n
         for i, diff in enumerate(difficulties):
-            counts[diff] = round(total * len(by_difficulty[diff]) / len(benchmark))
-        # adjust rounding to hit exactly total
-        while sum(counts.values()) < total:
-            counts[difficulties[0]] += 1
-        while sum(counts.values()) > total:
-            counts[difficulties[-1]] -= 1
+            counts[diff] = base + (1 if i >= n - remainder else 0)
+        # Clamp to available pool size
+        for diff in difficulties:
+            counts[diff] = min(counts[diff], len(by_difficulty[diff]))
         sampled = []
         for diff in difficulties:
             pool = by_difficulty[diff]

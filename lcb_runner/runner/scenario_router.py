@@ -300,6 +300,10 @@ def _print_metrics(scenario: Scenario, metrics, benchmark):
     pass_at_1 = summary.get("pass@1", solved / total if total else 0.0)
     print(f"\n  pass@1 : {pass_at_1:.1%}  ({solved}/{total} solved)")
 
+    # Print pass@5 when available (requires n >= 5 completions per problem)
+    if "pass@5" in summary:
+        print(f"  pass@5 : {summary['pass@5']:.1%}")
+
     # difficulty breakdown (easy → medium → hard, skip tiers with no data)
     _DIFF_ORDER = ["easy", "medium", "hard"]
     tiers = [d for d in _DIFF_ORDER if d in by_diff] + \

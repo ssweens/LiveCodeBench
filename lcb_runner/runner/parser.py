@@ -108,6 +108,12 @@ def get_args():
         dest="sample_seed",
         help="Random seed for --sample (default: 42)",
     )
+    parser.add_argument(
+        "--exclude",
+        type=str,
+        default=None,
+        help="Comma-separated question IDs to exclude (e.g. qabc400_c,q3705)",
+    )
     parser.add_argument("--evaluate", action="store_true", help="Evaluate the results")
     parser.add_argument(
         "--num_process_evaluate",
