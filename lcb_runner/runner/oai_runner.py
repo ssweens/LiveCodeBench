@@ -8,7 +8,7 @@ except ImportError as e:
     pass
 
 from lcb_runner.lm_styles import LMStyle
-from lcb_runner.runner.base_runner import BaseRunner
+from lcb_runner.runner.base_runner import BaseRunner, REQUEST_FAILURE_SENTINEL
 
 # Default to corral's local server port; override with --base-url or OPENAI_BASE_URL
 _DEFAULT_BASE_URL = "http://localhost:9999/v1"
@@ -75,7 +75,7 @@ class OpenAIRunner(BaseRunner):
     def _call_once(self, prompt: list[dict[str, str]], call_kwargs: dict, retries: int = 10) -> str:
         if retries == 0:
             print("Max retries reached. Returning empty response.")
-            return ""
+            return REQUEST_FAILURE_SENTINEL
 
         try:
             response = self.client.chat.completions.create(

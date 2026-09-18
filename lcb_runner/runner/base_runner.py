@@ -10,6 +10,13 @@ from lcb_runner.utils.multiprocess import run_tasks_in_parallel
 from lcb_runner.runner.scenario_router import Scenario
 
 
+# Reserved cache value for a completion that could not be obtained because of
+# a request/process failure. Empty strings remain valid completed model answers.
+# Garage's cache sanitizer recognizes this value and removes its whole prompt
+# entry instead of scoring it as a model failure.
+REQUEST_FAILURE_SENTINEL = "__GARAGE_LCB_TRANSPORT_FAILURE_V1__"
+
+
 class BaseRunner(ABC):
     def __init__(self, args, model: LanguageModel):
         self.args = args
@@ -89,7 +96,7 @@ class BaseRunner(ABC):
                     print("Failed to run the model for some prompts")
                     print(output.status)
                     print(output.exception_tb)
-                    outputs.extend([""] * self.args.n)
+                    outputs.extend([REQUEST_FAILURE_SENTINEL] * self.args.n)
         else:
             outputs = [self.run_single(argument) for argument in tqdm(arguments)]
 
