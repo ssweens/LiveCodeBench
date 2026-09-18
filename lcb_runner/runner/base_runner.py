@@ -1,6 +1,9 @@
-import os
 import json
+import os
+import tempfile
+import time
 from abc import ABC, abstractmethod
+from pathlib import Path
 
 from tqdm import tqdm
 
@@ -33,6 +36,81 @@ class BaseRunner(ABC):
         else:
             self.cache_path = None
             self.cache = None
+
+        progress_path = os.environ.get("GARAGE_LCB_PROGRESS_PATH")
+        self._progress_path = Path(progress_path) if progress_path else None
+        self._progress_question_ids: list[str] = []
+        self._progress_total = 0
+        self._progress_completed = 0
+        self._progress_current_index: int | None = None
+        self._progress_current_question_id: str | None = None
+        self._progress_current_try = 0
+
+    def _write_progress(self) -> None:
+        if self._progress_path is None:
+            return
+        payload = {
+            "schema_version": 1,
+            "total_problems": self._progress_total,
+            "completed_problems": self._progress_completed,
+            "tries_per_problem": self.args.n,
+            "current_index": self._progress_current_index,
+            "current_question_id": self._progress_current_question_id,
+            "current_try": self._progress_current_try,
+            "updated_at": time.time(),
+        }
+        self._progress_path.parent.mkdir(parents=True, exist_ok=True)
+        fd, temp_name = tempfile.mkstemp(
+            prefix=f".{self._progress_path.name}.",
+            suffix=".tmp",
+            dir=self._progress_path.parent,
+        )
+        try:
+            with os.fdopen(fd, "w") as handle:
+                json.dump(payload, handle)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(temp_name, self._progress_path)
+        except BaseException:
+            try:
+                os.unlink(temp_name)
+            except OSError:
+                pass
+            raise
+
+    def _progress_start(self, question_ids: list[str]) -> None:
+        if self._progress_path is None:
+            return
+        self._progress_question_ids = question_ids
+        self._progress_total = len(question_ids)
+        self._progress_completed = 0
+        self._progress_current_index = None
+        self._progress_current_question_id = None
+        self._progress_current_try = 0
+        self._write_progress()
+
+    def _progress_begin(self, question_id: str) -> None:
+        if self._progress_path is None:
+            return
+        self._progress_current_index = self._progress_question_ids.index(question_id)
+        self._progress_current_question_id = question_id
+        self._progress_current_try = 0
+        self._write_progress()
+
+    def _progress_try(self, completed_try: int) -> None:
+        if self._progress_path is None or self._progress_current_index is None:
+            return
+        self._progress_current_try = completed_try
+        self._write_progress()
+
+    def _progress_complete(self) -> None:
+        if self._progress_path is None or self._progress_current_index is None:
+            return
+        self._progress_completed += 1
+        self._progress_current_index = None
+        self._progress_current_question_id = None
+        self._progress_current_try = 0
+        self._write_progress()
 
     def save_cache(self):
         if self.args.use_cache:
@@ -71,7 +149,11 @@ class BaseRunner(ABC):
 
         return result
 
-    def run_batch(self, prompts: list[str | list[dict[str, str]]]) -> list[list[str]]:
+    def run_batch(
+        self,
+        prompts: list[str | list[dict[str, str]]],
+        progress_items: list[str] | None = None,
+    ) -> list[list[str]]:
         outputs = []
         arguments = [
             (
@@ -97,8 +179,17 @@ class BaseRunner(ABC):
                     print(output.status)
                     print(output.exception_tb)
                     outputs.extend([REQUEST_FAILURE_SENTINEL] * self.args.n)
+            if progress_items is not None:
+                for question_id in progress_items:
+                    self._progress_begin(question_id)
+                    self._progress_complete()
         else:
-            outputs = [self.run_single(argument) for argument in tqdm(arguments)]
+            for index, argument in enumerate(tqdm(arguments)):
+                if progress_items is not None:
+                    self._progress_begin(progress_items[index])
+                outputs.append(self.run_single(argument))
+                if progress_items is not None:
+                    self._progress_complete()
 
         if self.args.use_cache:
             for prompt, output in zip(prompts, outputs):
@@ -113,18 +204,24 @@ class BaseRunner(ABC):
         return outputs
 
     def prompts_to_outputs(
-        self, prompts: list[str | list[dict[str, str]]]
+        self,
+        prompts: list[str | list[dict[str, str]]],
+        progress_items: list[str] | None = None,
     ) -> list[list[str]]:
+        if progress_items is not None:
+            assert len(progress_items) == len(prompts)
+            self._progress_start(progress_items)
         if self.args.use_cache:
             outputs = []
             batch_size = self.args.cache_batch_size
             for i in range(0, len(prompts), batch_size):
                 batch = prompts[i : i + batch_size]
-                batch_outputs = self.run_batch(batch)
+                items = progress_items[i : i + batch_size] if progress_items is not None else None
+                batch_outputs = self.run_batch(batch, items)
                 outputs.extend(batch_outputs)
                 self.save_cache()
         else:
-            outputs = self.run_batch(prompts)
+            outputs = self.run_batch(prompts, progress_items)
         return outputs
 
     def run_main_repair(self, benchmark: list, format_prompt: callable) -> list[list[str]]:
@@ -184,5 +281,7 @@ class BaseRunner(ABC):
         prompts = [
             format_prompt(problem, self.model.model_style) for problem in benchmark
         ]
-        outputs = self.prompts_to_outputs(prompts)
+        outputs = self.prompts_to_outputs(
+            prompts, [str(problem.question_id) for problem in benchmark]
+        )
         return outputs

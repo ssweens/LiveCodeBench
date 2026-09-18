@@ -67,9 +67,10 @@ class OpenAIRunner(BaseRunner):
         call_kwargs = {**self.client_kwargs, "n": 1}
 
         results: list[str] = []
-        for _ in range(n_completions):
+        for completion_index in range(n_completions):
             result = self._call_once(prompt, call_kwargs, retries=retries)
             results.append(result)
+            self._progress_try(completion_index + 1)
         return results
 
     def _call_once(self, prompt: list[dict[str, str]], call_kwargs: dict, retries: int = 10) -> str:
