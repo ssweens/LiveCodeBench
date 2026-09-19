@@ -2,6 +2,8 @@ from lcb_runner.lm_styles import LMStyle
 
 
 def extract_code(model_output: str, lmstyle: LMStyle):
+    if not model_output:
+        return ""
     outputlines = model_output.split("\n")
     if lmstyle == LMStyle.CodeLLaMaInstruct:
         indexlines = [i for i, line in enumerate(outputlines) if "PYTHON]" in line]
@@ -18,6 +20,8 @@ def extract_code(model_output: str, lmstyle: LMStyle):
 
 
 def extract_test_output_code(model_output: str, lmstyle: LMStyle = None):
+    if not model_output:
+        return ""
     outputlines = model_output.split("\n")
     # find the last line startwith assert...
     indexlines = [i for i, line in enumerate(outputlines) if line.startswith("assert")]
@@ -47,6 +51,8 @@ def extract_test_output_code(model_output: str, lmstyle: LMStyle = None):
 
 
 def extract_execution_code(model_output: str, lmstyle: LMStyle, cot: bool = False):
+    if not model_output:
+        return ""
     if cot:
         if "[ANSWER]" in model_output:
             model_output = model_output.split("[ANSWER]")[1].strip()

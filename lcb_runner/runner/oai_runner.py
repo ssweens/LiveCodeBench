@@ -102,4 +102,13 @@ class OpenAIRunner(BaseRunner):
             print(f"Failed to run the model for {prompt}!")
             print("Exception: ", repr(e))
             raise e
-        return response.choices[0].message.content
+        msg = response.choices[0].message
+        content = getattr(msg, "content", None) if not isinstance(msg, dict) else msg.get("content")
+        if not content:
+            reasoning = (
+                getattr(msg, "reasoning_content", None) or getattr(msg, "reasoning", None)
+                if not isinstance(msg, dict)
+                else (msg.get("reasoning_content") or msg.get("reasoning"))
+            )
+            content = reasoning or ""
+        return str(content)

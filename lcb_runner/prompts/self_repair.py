@@ -312,6 +312,8 @@ def format_prompt_self_repair(
 
 
 def extract_code(model_output: str, lmstyle: LMStyle):
+    if not model_output:
+        return ""
     outputlines = model_output.split("\n")
     if lmstyle == LMStyle.CodeLLaMa:
         indexlines = [i for i, line in enumerate(outputlines) if "PYTHON]" in line]

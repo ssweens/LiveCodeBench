@@ -90,7 +90,7 @@ def combine_results(
         combined_results = [
             (
                 outputs_list,
-                [extract_code(output, model.model_style) for output in outputs_list],
+                [extract_code(output or "", model.model_style) for output in outputs_list],
             )
             for outputs_list in results
         ]
@@ -99,7 +99,7 @@ def combine_results(
             (
                 outputs_list,
                 [
-                    extract_test_output_code(output, model.model_style)
+                    extract_test_output_code(output or "", model.model_style)
                     for output in outputs_list
                 ],
             )
@@ -114,9 +114,7 @@ def combine_results(
                 ],
                 [
                     (
-                        extract_code(output[0], model.model_style)
-                        if type(output) is list
-                        else extract_code(output, model.model_style)
+                        extract_code((output[0] if type(output) is list else output) or "", model.model_style)
                     )
                     for output in outputs_list
                 ],
@@ -129,7 +127,7 @@ def combine_results(
                 outputs_list,
                 [
                     extract_execution_code(
-                        output, model.model_style, cot=cot_code_execution
+                        output or "", model.model_style, cot=cot_code_execution
                     )
                     for output in outputs_list
                 ],

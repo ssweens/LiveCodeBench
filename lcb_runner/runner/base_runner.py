@@ -142,10 +142,11 @@ class BaseRunner(ABC):
 
         if cache is not None and prompt_cache in cache:
             if len(cache[prompt_cache]) == args.n:
-                return cache[prompt_cache]
+                return ["" if x is None else str(x) for x in cache[prompt_cache]]
 
         result = call_method(prompt)
         assert len(result) == args.n
+        result = ["" if x is None else str(x) for x in result]
 
         return result
 
