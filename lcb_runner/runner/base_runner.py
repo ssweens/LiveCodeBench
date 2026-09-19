@@ -1,5 +1,6 @@
 import json
 import os
+import sys
 import tempfile
 import time
 from abc import ABC, abstractmethod
@@ -166,20 +167,29 @@ class BaseRunner(ABC):
             for prompt in prompts
         ]
         if self.args.multiprocess > 1:
-            parallel_outputs = run_tasks_in_parallel(
-                self.run_single,
-                arguments,
-                self.args.multiprocess,
-                use_progress_bar=True,
-            )
-            for output in parallel_outputs:
-                if output.is_success():
-                    outputs.append(output.result)
-                else:
-                    print("Failed to run the model for some prompts")
-                    print(output.status)
-                    print(output.exception_tb)
-                    outputs.extend([REQUEST_FAILURE_SENTINEL] * self.args.n)
+            from concurrent.futures import ThreadPoolExecutor
+
+            def _process_item(arg):
+                try:
+                    return self.run_single(arg)
+                except Exception as exc:
+                    print(f"Failed to run the model for prompt: {exc}")
+                    return [REQUEST_FAILURE_SENTINEL] * self.args.n
+
+            with ThreadPoolExecutor(max_workers=self.args.multiprocess) as executor:
+                parallel_results = list(
+                    tqdm(
+                        executor.map(_process_item, arguments),
+                        total=len(arguments),
+                        desc="Generating completions",
+                        dynamic_ncols=True,
+                        file=sys.stdout,
+                    )
+                )
+
+            for result in parallel_results:
+                outputs.append(result)
+
             if progress_items is not None:
                 for question_id in progress_items:
                     self._progress_begin(question_id)
