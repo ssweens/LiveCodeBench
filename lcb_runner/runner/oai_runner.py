@@ -58,14 +58,19 @@ class OpenAIRunner(BaseRunner):
                 # "stop": args.stop, --> stop is only used for base models currently
             }
 
+    def _completion_kwargs(self) -> dict:
+        # Always request n=1 per call. llama.cpp is single-slot; vLLM can keep
+        # many of these in flight via BaseRunner's completion pool.
+        return {**self.client_kwargs, "n": 1}
+
+    def _run_one_completion(self, prompt: list[dict[str, str]]) -> str:
+        assert isinstance(prompt, list)
+        return self._call_once(prompt, self._completion_kwargs())
+
     def _run_single(self, prompt: list[dict[str, str]], retries: int = 10) -> list[str]:
         assert isinstance(prompt, list)
-
         n_completions = self.client_kwargs.get("n", 1)
-        # Always request n=1 per call (compatible with single-slot servers like
-        # llama.cpp) and loop to collect the desired number of completions.
-        call_kwargs = {**self.client_kwargs, "n": 1}
-
+        call_kwargs = self._completion_kwargs()
         results: list[str] = []
         for completion_index in range(n_completions):
             result = self._call_once(prompt, call_kwargs, retries=retries)

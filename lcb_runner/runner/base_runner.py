@@ -2,8 +2,10 @@ import json
 import os
 import sys
 import tempfile
+import threading
 import time
 from abc import ABC, abstractmethod
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 from tqdm import tqdm
@@ -21,11 +23,21 @@ from lcb_runner.runner.scenario_router import Scenario
 REQUEST_FAILURE_SENTINEL = "__GARAGE_LCB_TRANSPORT_FAILURE_V1__"
 
 
+def _prompt_cache_key(prompt: str | list[dict[str, str]] | tuple) -> str:
+    if isinstance(prompt, list):
+        return json.dumps(prompt)
+    if isinstance(prompt, tuple):
+        return prompt[0] + json.dumps(prompt[1])
+    return prompt
+
+
 class BaseRunner(ABC):
     def __init__(self, args, model: LanguageModel):
         self.args = args
         self.model = model
         self.client_kwargs: dict[str | str] = {}
+        self._cache_lock = threading.RLock()
+        self._progress_lock = threading.Lock()
 
         if self.args.use_cache:
             self.cache_path = get_cache_path(model.model_repr, args)
@@ -93,34 +105,68 @@ class BaseRunner(ABC):
     def _progress_begin(self, question_id: str) -> None:
         if self._progress_path is None:
             return
-        self._progress_current_index = self._progress_question_ids.index(question_id)
-        self._progress_current_question_id = question_id
-        self._progress_current_try = 0
-        self._write_progress()
+        with self._progress_lock:
+            self._progress_current_index = self._progress_question_ids.index(question_id)
+            self._progress_current_question_id = question_id
+            self._progress_current_try = 0
+            self._write_progress()
 
     def _progress_try(self, completed_try: int) -> None:
-        if self._progress_path is None or self._progress_current_index is None:
+        if self._progress_path is None:
             return
-        self._progress_current_try = completed_try
-        self._write_progress()
+        with self._progress_lock:
+            if self._progress_current_index is None:
+                return
+            self._progress_current_try = completed_try
+            self._write_progress()
 
     def _progress_complete(self) -> None:
-        if self._progress_path is None or self._progress_current_index is None:
+        if self._progress_path is None:
             return
-        self._progress_completed += 1
-        self._progress_current_index = None
-        self._progress_current_question_id = None
-        self._progress_current_try = 0
-        self._write_progress()
+        with self._progress_lock:
+            self._progress_completed += 1
+            self._progress_current_index = None
+            self._progress_current_question_id = None
+            self._progress_current_try = 0
+            self._write_progress()
 
     def save_cache(self):
-        if self.args.use_cache:
+        if not self.args.use_cache:
+            return
+        with self._cache_lock:
             with open(self.cache_path, "w") as f:
                 json.dump(self.cache, f, indent=4)
 
     # @abstractmethod
     def _run_single(self, prompt: str | list[dict[str, str]]) -> list[str]:
         pass
+
+    def _run_one_completion(self, prompt: str | list[dict[str, str]]) -> str:
+        """Generate a single completion. OpenAI-style runners override this so
+        the completion pool can keep `--multiprocess` HTTP calls in flight
+        across problems instead of serializing n tries inside one problem.
+        """
+        raise NotImplementedError
+
+    def _uses_completion_pool(self) -> bool:
+        return (
+            self.args.multiprocess > 1
+            and type(self)._run_one_completion is not BaseRunner._run_one_completion
+        )
+
+    def _cached_slots(self, prompt: str | list[dict[str, str]] | tuple) -> list[str | None]:
+        n = self.args.n
+        slots: list[str | None] = [None] * n
+        if self.cache is None:
+            return slots
+        cached = self.cache.get(_prompt_cache_key(prompt))
+        if not isinstance(cached, list):
+            return slots
+        for index, value in enumerate(cached[:n]):
+            if value is None or value == REQUEST_FAILURE_SENTINEL:
+                continue
+            slots[index] = "" if value is None else str(value)
+        return slots
 
     @staticmethod
     def run_single(combined_args) -> list[str]:
@@ -156,6 +202,15 @@ class BaseRunner(ABC):
         prompts: list[str | list[dict[str, str]]],
         progress_items: list[str] | None = None,
     ) -> list[list[str]]:
+        if self._uses_completion_pool():
+            return self._run_batch_completion_pool(prompts, progress_items)
+        return self._run_batch_per_prompt(prompts, progress_items)
+
+    def _run_batch_per_prompt(
+        self,
+        prompts: list[str | list[dict[str, str]]],
+        progress_items: list[str] | None = None,
+    ) -> list[list[str]]:
         outputs = []
         arguments = [
             (
@@ -167,8 +222,6 @@ class BaseRunner(ABC):
             for prompt in prompts
         ]
         if self.args.multiprocess > 1:
-            from concurrent.futures import ThreadPoolExecutor
-
             def _process_item(arg):
                 try:
                     return self.run_single(arg)
@@ -204,15 +257,83 @@ class BaseRunner(ABC):
 
         if self.args.use_cache:
             for prompt, output in zip(prompts, outputs):
-                if isinstance(prompt, list):
-                    prompt_cache = json.dumps(prompt)
-                elif isinstance(prompt, tuple):
-                    prompt_cache = prompt[0] + json.dumps(prompt[1])
-                else:
-                    prompt_cache = prompt
-                self.cache[prompt_cache] = output  ## save the output to cache
+                self.cache[_prompt_cache_key(prompt)] = output
 
         return outputs
+
+    def _run_batch_completion_pool(
+        self,
+        prompts: list[str | list[dict[str, str]]],
+        progress_items: list[str] | None = None,
+    ) -> list[list[str]]:
+        n = self.args.n
+        workers = max(1, int(self.args.multiprocess))
+        outputs: list[list[str | None]] = []
+        remaining = []
+        jobs: list[tuple[int, int]] = []
+
+        slot_lists: list[list[int]] = []
+        for prompt_index, prompt in enumerate(prompts):
+            slots = self._cached_slots(prompt)
+            outputs.append(slots)
+            missing = [slot_index for slot_index, value in enumerate(slots) if value is None]
+            remaining.append(len(missing))
+            slot_lists.append(missing)
+            if not missing and progress_items is not None:
+                self._progress_begin(progress_items[prompt_index])
+                self._progress_complete()
+        max_missing = max((len(missing) for missing in slot_lists), default=0)
+        for offset in range(max_missing):
+            for prompt_index, missing in enumerate(slot_lists):
+                if offset < len(missing):
+                    jobs.append((prompt_index, missing[offset]))
+
+        if not jobs:
+            return [[str(value) for value in row] for row in outputs]
+
+        def _work(job: tuple[int, int]) -> None:
+            prompt_index, slot_index = job
+            prompt = prompts[prompt_index]
+            try:
+                result = self._run_one_completion(prompt)
+            except Exception as exc:
+                print(f"Failed to run the model for prompt: {exc}")
+                result = REQUEST_FAILURE_SENTINEL
+            result = "" if result is None else str(result)
+            with self._cache_lock:
+                outputs[prompt_index][slot_index] = result
+                remaining[prompt_index] -= 1
+                filled = n - remaining[prompt_index]
+                if progress_items is not None:
+                    self._progress_begin(progress_items[prompt_index])
+                    self._progress_try(filled)
+                    if remaining[prompt_index] == 0:
+                        self._progress_complete()
+                if remaining[prompt_index] == 0 and self.args.use_cache:
+                    self.cache[_prompt_cache_key(prompt)] = [
+                        "" if value is None else str(value) for value in outputs[prompt_index]
+                    ]
+                    self.save_cache()
+
+        desc = "Generating completions"
+        if workers == 1:
+            for job in tqdm(jobs, total=len(jobs), desc=desc, dynamic_ncols=True, file=sys.stdout):
+                _work(job)
+        else:
+            with ThreadPoolExecutor(max_workers=workers) as executor:
+                futures = [executor.submit(_work, job) for job in jobs]
+                for _ in tqdm(
+                    as_completed(futures),
+                    total=len(futures),
+                    desc=desc,
+                    dynamic_ncols=True,
+                    file=sys.stdout,
+                ):
+                    pass
+                for future in futures:
+                    future.result()
+
+        return [["" if value is None else str(value) for value in row] for row in outputs]
 
     def prompts_to_outputs(
         self,
@@ -222,6 +343,11 @@ class BaseRunner(ABC):
         if progress_items is not None:
             assert len(progress_items) == len(prompts)
             self._progress_start(progress_items)
+        if self._uses_completion_pool():
+            outputs = self.run_batch(prompts, progress_items)
+            if self.args.use_cache:
+                self.save_cache()
+            return outputs
         if self.args.use_cache:
             outputs = []
             batch_size = self.args.cache_batch_size
@@ -231,9 +357,8 @@ class BaseRunner(ABC):
                 batch_outputs = self.run_batch(batch, items)
                 outputs.extend(batch_outputs)
                 self.save_cache()
-        else:
-            outputs = self.run_batch(prompts, progress_items)
-        return outputs
+            return outputs
+        return self.run_batch(prompts, progress_items)
 
     def run_main_repair(self, benchmark: list, format_prompt: callable) -> list[list[str]]:
         assert self.args.n == 1
