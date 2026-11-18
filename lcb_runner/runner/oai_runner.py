@@ -26,9 +26,16 @@ class OpenAIRunner(BaseRunner):
 
         api_key = os.getenv("OPENAI_KEY") or os.getenv("OPENAI_API_KEY") or "dummy"
 
+        workload_class = (os.getenv("CORRAL_WORKLOAD_CLASS") or "").strip().lower()
+        default_headers = (
+            {"x-corral-workload-class": workload_class}
+            if workload_class and workload_class not in {"interactive", "foreground", "none", "off", "0", "false"}
+            else None
+        )
         self.client = OpenAI(
             api_key=api_key,
             base_url=base_url,
+            default_headers=default_headers,
         )
 
         if model.model_style == LMStyle.OpenAIReasonPreview:
